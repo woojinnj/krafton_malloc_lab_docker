@@ -26,9 +26,9 @@ team_t team = {
     /* Team name */
     "ateam",
     /* First member's full name */
-    "Harry Bovik",
+    "Frieren",
     /* First member's email address */
-    "bovik@cs.cmu.edu",
+    "woojinnj@gmail.com",
     /* Second member's full name (leave blank if none) */
     "",
     /* Second member's email address (leave blank if none) */
@@ -64,16 +64,18 @@ team_t team = {
 #define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE)))
 #define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE)))
 
+#define MAX(x, y) ((x) > (y) ? (x) : (y))
 /*
  * mm_init - initialize the malloc package.
  */
 
 static char *heap_listp;
 static void *extend_heap(size_t words);
-static void *extend_heap(size_t words);
 static void *coalesce(void *bp);
+static void *find_fit(size_t asize);
+static void place(void *bp, size_t asize);
 
-int mm_init(void) // 필수
+int mm_init(void) // 초기화
 {
     if ((heap_listp = mem_sbrk(4 * WSIZE)) == (void *)-1)
         return -1;
@@ -89,6 +91,27 @@ int mm_init(void) // 필수
         return -1;
 
     return 0;
+}
+
+// find fit (어디 넣을지 찾기)) (First fit)
+void *find_fit(size_t asize)
+{
+    char *bp = NEXT_BLKP(heap_listp);
+    while (GET_SIZE(HDRP(bp)))
+    {
+        if (asize <= GET_SIZE(HDRP(bp)) && !(GET_ALLOC(HDRP(bp))))
+        {
+            return bp;
+        }
+        bp = NEXT_BLKP(bp);
+    }
+    return NULL;
+}
+
+// place (실제로 넣기))
+void place(void *bp, size_t asize)
+{
+    
 }
 
 /*
@@ -176,13 +199,15 @@ static void *coalesce(void *bp)
         size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
         PUT(HDRP(bp), PACK(size, 0));
         PUT(FTRP(bp), PACK(size, 0));
+        return bp;
     }
-    else if (prev_alloc && next_alloc)
+    else if (!prev_alloc && next_alloc)
     { /* Case 3 */
         size += GET_SIZE(HDRP(PREV_BLKP(bp)));
         PUT(FTRP(bp), PACK(size, 0));
         PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
         bp = PREV_BLKP(bp);
+        return bp;
     }
     else
     { /* Case 4 */
@@ -194,6 +219,7 @@ static void *coalesce(void *bp)
         return bp;
     }
 }
+
 /*
  * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
  */
