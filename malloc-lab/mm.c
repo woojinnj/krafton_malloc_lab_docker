@@ -111,7 +111,21 @@ void *find_fit(size_t asize)
 // place (실제로 넣기))
 void place(void *bp, size_t asize)
 {
-    
+    size_t s_size = GET_SIZE(HDRP(bp)); // start size
+
+    if (s_size - asize >= 2 * DSIZE)
+    {
+        PUT(HDRP(bp), PACK(asize, 1));
+        PUT(FTRP(bp), PACK(asize, 1));
+        bp = NEXT_BLKP(bp);
+        PUT(HDRP(bp), PACK(s_size - asize, 0));
+        PUT(FTRP(bp), PACK(s_size - asize, 0));
+    }
+    else
+    {
+        PUT(HDRP(bp), PACK(s_size, 1));
+        PUT(FTRP(bp), PACK(s_size, 1));
+    }
 }
 
 /*
