@@ -14,6 +14,7 @@
 #include <assert.h>
 #include <unistd.h>
 #include <string.h>
+#include <stdint.h>
 
 #include "mm.h"
 #include "memlib.h"
@@ -70,6 +71,7 @@ team_t team = {
  */
 
 static char *heap_listp;
+static char *rover; // next fit 탐색용
 static void *extend_heap(size_t words);
 static void *coalesce(void *bp);
 static void *find_fit(size_t asize);
@@ -90,20 +92,45 @@ int mm_init(void) // 초기화
     if (extend_heap(CHUNKSIZE / WSIZE) == NULL)
         return -1;
 
+    rover = NEXT_BLKP(heap_listp); // Next fit을 위한 전역 변수 Rover 초기화
     return 0;
 }
 
 // find fit (어디 넣을지 찾기)) (First fit)
+// void *find_fit(size_t asize)
+// {
+//     char *bp = NEXT_BLKP(heap_listp);
+//     while (GET_SIZE(HDRP(bp)))
+//     {
+//         if (asize <= GET_SIZE(HDRP(bp)) && !(GET_ALLOC(HDRP(bp))))
+//         {
+//             return bp;
+//         }
+//         bp = NEXT_BLKP(bp);
+//     }
+//     return NULL;
+// }
+
+// (Next Fit)
 void *find_fit(size_t asize)
 {
-    char *bp = NEXT_BLKP(heap_listp);
-    while (GET_SIZE(HDRP(bp)))
+    char *start = rover;
+    while (GET_SIZE(HDRP(rover)))
     {
-        if (asize <= GET_SIZE(HDRP(bp)) && !(GET_ALLOC(HDRP(bp))))
+        if (asize <= GET_SIZE(HDRP(rover)) && !(GET_ALLOC(HDRP(rover))))
         {
-            return bp;
+            return rover;
         }
-        bp = NEXT_BLKP(bp);
+        rover = NEXT_BLKP(rover);
+    }
+    rover = NEXT_BLKP(heap_listp);
+    while (rover != start)
+    {
+        if (asize <= GET_SIZE(HDRP(rover)) && !(GET_ALLOC(HDRP(rover))))
+        {
+            return rover;
+        }
+        rover = NEXT_BLKP(rover);
     }
     return NULL;
 }
@@ -140,6 +167,9 @@ void *mm_malloc(size_t size) // 필수
 
     /* Ignore spurious requests */
     if (size == 0)
+        return NULL;
+
+    if (size > SIZE_MAX - (2 * DSIZE - 1))
         return NULL;
 
     /* Adjust block size to include overhead and alignment requirements */
@@ -190,6 +220,8 @@ static void *extend_heap(size_t words)
  */
 void mm_free(void *bp) // 필수
 {
+    if (bp == NULL)
+        return;
     size_t size = GET_SIZE(HDRP(bp));
     PUT(HDRP(bp), PACK(size, 0));
     PUT(FTRP(bp), PACK(size, 0));
@@ -210,9 +242,14 @@ static void *coalesce(void *bp)
     /* Case 2 */
     else if (prev_alloc && !next_alloc)
     {
+        void *next = NEXT_BLKP(bp);
+
         size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
         PUT(HDRP(bp), PACK(size, 0));
         PUT(FTRP(bp), PACK(size, 0));
+
+        if (rover == next)
+            rover = bp;
         return bp;
     }
     else if (!prev_alloc && next_alloc)
@@ -220,6 +257,8 @@ static void *coalesce(void *bp)
         size += GET_SIZE(HDRP(PREV_BLKP(bp)));
         PUT(FTRP(bp), PACK(size, 0));
         PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
+        if (rover == bp)
+            rover = PREV_BLKP(rover);
         bp = PREV_BLKP(bp);
         return bp;
     }
@@ -229,6 +268,13 @@ static void *coalesce(void *bp)
                 GET_SIZE(FTRP(NEXT_BLKP(bp)));
         PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
         PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));
+
+        void *next = NEXT_BLKP(bp);
+
+        if (rover == next || rover == bp)
+        {
+            rover = PREV_BLKP(bp);
+        }
         bp = PREV_BLKP(bp);
         return bp;
     }
@@ -246,6 +292,9 @@ void *mm_realloc(void *ptr, size_t size) // 필수
         mm_free(ptr);
         return NULL;
     }
+
+    if (size > SIZE_MAX - (2 * DSIZE - 1))
+        return NULL;
 
     void *oldptr = ptr; // 기존 블록
     void *newptr;       // 제자리 확장 안돼서 새로 malloc 할때 주소
@@ -289,6 +338,7 @@ void *mm_realloc(void *ptr, size_t size) // 필수
 
         if (sumSize >= asize)
         {
+            rover = oldptr;
             remainSize = sumSize - asize;
             if (remainSize >= 2 * DSIZE)
             {
@@ -314,6 +364,7 @@ void *mm_realloc(void *ptr, size_t size) // 필수
         sumSize = oldSize + leftSize;
         if (sumSize >= asize)
         {
+            rover = prevptr;
             size_t payloadSize = oldSize - DSIZE;
             memmove(prevptr, oldptr, payloadSize);
             remainSize = sumSize - asize;
@@ -342,6 +393,7 @@ void *mm_realloc(void *ptr, size_t size) // 필수
 
         if (sumSize >= asize)
         {
+            rover = prevptr;
             size_t payloadSize = oldSize - DSIZE;
             memmove(prevptr, oldptr, payloadSize);
             remainSize = sumSize - asize;
