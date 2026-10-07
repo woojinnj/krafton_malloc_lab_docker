@@ -239,17 +239,137 @@ static void *coalesce(void *bp)
  */
 void *mm_realloc(void *ptr, size_t size) // 필수
 {
-    void *oldptr = ptr;
-    void *newptr;
-    size_t copySize;
+    if (ptr == NULL)
+        return mm_malloc(size);
+    if (size == 0)
+    {
+        mm_free(ptr);
+        return NULL;
+    }
+
+    void *oldptr = ptr; // 기존 블록
+    void *newptr;       // 제자리 확장 안돼서 새로 malloc 할때 주소
+    size_t oldSize;     // 기존 블록 전체 크기
+    oldSize = GET_SIZE(HDRP(oldptr));
+    size_t asize; // 실제로 필요한 크기
+    size_t remainSize;
+    if (size <= DSIZE)
+        asize = 2 * DSIZE;
+    else
+        asize = DSIZE * ((size + DSIZE + (DSIZE - 1)) / DSIZE);
+
+    // 축소
+    if (asize <= oldSize)
+    {
+        remainSize = oldSize - asize;
+        if (remainSize >= 2 * DSIZE)
+        {
+            PUT(HDRP(oldptr), PACK(asize, 1));
+            PUT(FTRP(oldptr), PACK(asize, 1));
+
+            void *freeptr = NEXT_BLKP(oldptr);
+            PUT(HDRP(freeptr), PACK(remainSize, 0));
+            PUT(FTRP(freeptr), PACK(remainSize, 0));
+
+            coalesce(freeptr);
+        }
+        return oldptr;
+    }
+
+    // asize > oldSize
+    size_t sumSize;
+    size_t rightSize;
+    size_t leftSize;
+    void *nextptr = NEXT_BLKP(oldptr);
+    // 오른쪽만 사용
+    if (!GET_ALLOC(HDRP(nextptr)))
+    {
+        rightSize = GET_SIZE(HDRP(nextptr));
+        sumSize = oldSize + rightSize;
+
+        if (sumSize >= asize)
+        {
+            remainSize = sumSize - asize;
+            if (remainSize >= 2 * DSIZE)
+            {
+                PUT(HDRP(oldptr), PACK(asize, 1));
+                PUT(FTRP(oldptr), PACK(asize, 1));
+                nextptr = NEXT_BLKP(oldptr);
+                PUT(HDRP(nextptr), PACK(remainSize, 0));
+                PUT(FTRP(nextptr), PACK(remainSize, 0));
+            }
+            else
+            {
+                PUT(HDRP(oldptr), PACK(sumSize, 1));
+                PUT(FTRP(oldptr), PACK(sumSize, 1));
+            }
+            return oldptr;
+        }
+    }
+    void *prevptr = PREV_BLKP(oldptr);
+    // 왼쪽만 사용
+    if (!GET_ALLOC(HDRP(prevptr)))
+    {
+        leftSize = GET_SIZE(HDRP(prevptr));
+        sumSize = oldSize + leftSize;
+        if (sumSize >= asize)
+        {
+            size_t payloadSize = oldSize - DSIZE;
+            memmove(prevptr, oldptr, payloadSize);
+            remainSize = sumSize - asize;
+            if (remainSize >= 2 * DSIZE)
+            {
+                PUT(HDRP(prevptr), PACK(asize, 1));
+                PUT(FTRP(prevptr), PACK(asize, 1));
+                nextptr = NEXT_BLKP(prevptr);
+                PUT(HDRP(nextptr), PACK(remainSize, 0));
+                PUT(FTRP(nextptr), PACK(remainSize, 0));
+                coalesce(nextptr);
+            }
+            else
+            {
+                PUT(HDRP(prevptr), PACK(sumSize, 1));
+                PUT(FTRP(prevptr), PACK(sumSize, 1));
+            }
+            return prevptr;
+        }
+    }
+    if (!GET_ALLOC(HDRP(prevptr)) && !GET_ALLOC(HDRP(nextptr)))
+    {
+        leftSize = GET_SIZE(HDRP(prevptr));
+        rightSize = GET_SIZE(HDRP(nextptr));
+        sumSize = leftSize + oldSize + rightSize;
+
+        if (sumSize >= asize)
+        {
+            size_t payloadSize = oldSize - DSIZE;
+            memmove(prevptr, oldptr, payloadSize);
+            remainSize = sumSize - asize;
+
+            if (remainSize >= 2 * DSIZE)
+            {
+                PUT(HDRP(prevptr), PACK(asize, 1));
+                PUT(FTRP(prevptr), PACK(asize, 1));
+                nextptr = NEXT_BLKP(prevptr);
+                PUT(HDRP(nextptr), PACK(remainSize, 0));
+                PUT(FTRP(nextptr), PACK(remainSize, 0));
+                coalesce(nextptr);
+            }
+            else
+            {
+                PUT(HDRP(prevptr), PACK(sumSize, 1));
+                PUT(FTRP(prevptr), PACK(sumSize, 1));
+            }
+            return prevptr;
+        }
+    }
 
     newptr = mm_malloc(size);
     if (newptr == NULL)
         return NULL;
-    copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
-    if (size < copySize)
-        copySize = size;
-    memcpy(newptr, oldptr, copySize);
+
+    size_t payloadSize = oldSize - DSIZE;
+    memcpy(newptr, oldptr, payloadSize);
     mm_free(oldptr);
     return newptr;
 }
